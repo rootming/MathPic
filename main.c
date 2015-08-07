@@ -4,7 +4,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <math.h>
-#include <pthread.h>
+#include <malloc.h>
+#include <PROCESS.H>
 
 #define DIM 1920
 #define _TH_NUM 10
@@ -21,17 +22,16 @@ typedef struct _arg{
 	uint8_t *src;
 }arg;
 
-uint8_t *raw;
-FILE *fp;
+arg units[_TH_NUM];
 volatile int32_t thread_id[_TH_NUM];
 volatile int count;
-arg units[_TH_NUM];
-pthread_t pid[_TH_NUM];
+uint8_t *raw;
+FILE *fp;
 
-void pixel_write(void *info){
+
+void pixel_write(arg *unit){
 	double a = 0, b = 0, c = 0, d = 0, n = 0;
 	uint8_t *p;
-    arg *unit = (arg*)info;
 	p = unit->src;
 	printf("Thread %d start\n", unit->id);
 	printf("PE %d\n", PE);
@@ -68,14 +68,19 @@ int main(void)
 		units[i].end = units[i].begin + PE;
 		units[i].id = i;
 		units[i].src = &raw[i * PE * DIM * 3];
-		pthread_create(&pid[i], NULL, (void *)pixel_write, (void *)(&units[i]));
+		_beginthread(pixel_write, 0, &units[i]);
 	}
-	for (int i = 0; i < _TH_NUM; i++){
-			pthread_join(pid[i], NULL);
+
+	while (count != _TH_NUM){
+		count = 0;
+		for (int i = 0; i < _TH_NUM; i++){
+			count += thread_id[i];
+		}
+		Sleep(100L);
 	}
-	
 	fwrite(raw, 1, 3 * DIM * DIM, fp);
 	fclose(fp);
 	printf("done\n");
+	getch();
 	return 0;
 }
