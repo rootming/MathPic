@@ -1,7 +1,8 @@
 //#pragma OPENCL EXTENSION cl_intel_printf : enable
 //#pragma OPENCL EXTENSION cl_khr_fp64 : enable
 //#pragma OPENCL EXTENSION cl_khr_byte_addressable_store : enable
-
+#pragma optionNV(fastmath off)
+#pragma optionNV(fastprecision off)
 //__kernel void vecAdd(__global char *source)
 __kernel void vecAdd(__global char *source, const int line, const int pos)
 {
