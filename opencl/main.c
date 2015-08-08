@@ -17,8 +17,8 @@
 #define DEBUG_CL
 #define MAX_SOURCE_SIZE (0x100000)
 
-#define _DIM 480
-#define _block 240
+#define _DIM 960 * 20
+#define _BLOCK 960
 
 
 void loadKernel(const char *path, char **source_str, size_t *source_size);
@@ -26,9 +26,9 @@ int getProgramBuildInfo(cl_program program, cl_device_id device);
 void init();
 
 uint32_t  dim = _DIM;
-uint32_t  block = _block;
+uint32_t  block = _BLOCK;
 uint32_t  host_mem_alloc_size = _DIM * _DIM * 3 * sizeof(uint8_t);
-uint32_t  dev_mem_alloc_size = _block * _block * 3 * sizeof(uint8_t);
+uint32_t  dev_mem_alloc_size = _BLOCK * _BLOCK * 3 * sizeof(uint8_t);
 uint32_t count_nv = 0;
 uint32_t count_ig = 0;
 const char fileName[] = "/Users/rootming/MathPic/opencl/kernel.cl";
@@ -59,7 +59,7 @@ char platformName[64];
 char openclVersion[64];
 char devicesName[64];
 size_t nameLen;
-size_t global_work_size = _block * _block;
+size_t global_work_size = _BLOCK * _BLOCK;
 volatile int id[2];
 enum PLATFROM { NVIDIA, INTEL };
 uint32_t pos = 0;
@@ -76,7 +76,7 @@ int main()
 		getchar();
 		exit(1);
 	}
-	
+    getDevices();
 	image = fopen("/Users/rootming/MathPic/opencl/MathPic.ppm", "wb");
 	fprintf(image, "P6\n%d %d\n255\n", dim, dim);
 
@@ -88,12 +88,12 @@ int main()
 	start = clock();
 
 	do{
-		if (id[NVIDIA] == 0 && pos < dim * dim){
-			arg = pos;
-            pthread_create(&thread_id[NVIDIA], NULL, (void *)&nv_unit, (void *)&arg);
-			pos += block * block;
-			//continue;
-		}
+//		if (id[NVIDIA] == 0 && pos < dim * dim){
+//			arg = pos;
+//            pthread_create(&thread_id[NVIDIA], NULL, (void *)&nv_unit, (void *)&arg);
+//			pos += block * block;
+//			//continue;
+//		}
 //		if (id[INTEL] == 0 && pos < dim * dim){
 //			arg = pos;
 //            pthread_create(&thread_id[INTEL], NULL, (void *)in_unit, (void *)&arg);
@@ -101,8 +101,11 @@ int main()
 //			pos += block * block;
 //			//continue;
 //		}
+        
+            arg = pos;
+        nv_unit((void *)&arg);
+            pos += block * block;
 
-	
 
 	} while (pos < dim * dim || id[INTEL] || id[NVIDIA]);
 
