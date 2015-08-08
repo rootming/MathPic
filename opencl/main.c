@@ -4,20 +4,21 @@
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
-#include <PROCESS.H>
-#include <Windows.h>
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
+#include <pthread.h>
 #else
 #include <CL/cl.h>
+#include <PROCESS.H>
+#include <Windows.h>
 #endif
 
-#pragma warning( disable : 4996 )
-#define DEBUG
+//#pragma warning( disable : 4996 )
+#define DEBUG_CL
 #define MAX_SOURCE_SIZE (0x100000)
 
 #define _DIM 480
-#define _BOX 240
+#define _block 240
 
 
 void loadKernel(const char *path, char **source_str, size_t *source_size);
@@ -25,13 +26,13 @@ int getProgramBuildInfo(cl_program program, cl_device_id device);
 void init();
 
 uint32_t  dim = _DIM;
-uint32_t  box = _BOX;
+uint32_t  block = _block;
 uint32_t  host_mem_alloc_size = _DIM * _DIM * 3 * sizeof(uint8_t);
-uint32_t  dev_mem_alloc_size = _BOX * _BOX * 3 * sizeof(uint8_t);
+uint32_t  dev_mem_alloc_size = _block * _block * 3 * sizeof(uint8_t);
 uint32_t count_nv = 0;
 uint32_t count_ig = 0;
-const char fileName[] = "kernel.cl";
-uint8_t *raw;
+const char fileName[] = "/Users/rootming/MathPic/opencl/kernel.cl";
+uint8_t *rawimage;
 size_t kernel_size;
 char *kernel_file;
 cl_platform_id platform_id[5];
@@ -58,25 +59,25 @@ char platformName[64];
 char openclVersion[64];
 char devicesName[64];
 size_t nameLen;
-size_t global_work_size = _BOX * _BOX;
+size_t global_work_size = _block * _block;
 volatile int id[2];
 enum PLATFROM { NVIDIA, INTEL };
 uint32_t pos = 0;
 int arg = 0;
-
+pthread_t thread_id[2];
 
 int main()
 {
 	FILE *image;
-	loadKernel("kernel.cl", &kernel_file, &kernel_size);
+	loadKernel(fileName, &kernel_file, &kernel_size);
 
-	if ((raw = malloc(host_mem_alloc_size)) == NULL){
+	if ((rawimage = malloc(host_mem_alloc_size)) == NULL){
 		perror("malloc error");
 		getchar();
 		exit(1);
 	}
 	
-	image = fopen("MathPic.ppm", "wb");
+	image = fopen("/Users/rootming/MathPic/opencl/MathPic.ppm", "wb");
 	fprintf(image, "P6\n%d %d\n255\n", dim, dim);
 
 
@@ -89,24 +90,24 @@ int main()
 	do{
 		if (id[NVIDIA] == 0 && pos < dim * dim){
 			arg = pos;
-			WaitForSingleObject((HANDLE)_beginthread(nv_unit, 0, (void *)&arg), CL_INFINITY);
-			pos += box * box;
+            pthread_create(&thread_id[NVIDIA], NULL, (void *)&nv_unit, (void *)&arg);
+			pos += block * block;
 			//continue;
 		}
-		if (id[INTEL] == 0 && pos < dim * dim){
-			arg = pos;
-			WaitForSingleObject((HANDLE)_beginthread(in_unit, 0, (void *)&arg), CL_INFINITY);
-			while (id[INTEL] == 1);
-			pos += box * box;
-			//continue;
-		}
+//		if (id[INTEL] == 0 && pos < dim * dim){
+//			arg = pos;
+//            pthread_create(&thread_id[INTEL], NULL, (void *)in_unit, (void *)&arg);
+//			while (id[INTEL] == 1);
+//			pos += block * block;
+//			//continue;
+//		}
 
 	
 
 	} while (pos < dim * dim || id[INTEL] || id[NVIDIA]);
 
 	end = clock();
-	printf("Render end, using %d ms\n", end - start);
+	printf("Render end, using %lu ms\n", end - start);
 	
 	//_sleep(10000);
 	/* Finalization */
@@ -125,10 +126,10 @@ int main()
 	ret = clReleaseContext(context_nvida);
 	ret = clReleaseContext(context_intel);
 	printf("Start write...\n");
-	fwrite(raw, 1, 3 * dim * dim, image);
+	fwrite(rawimage, 1, 3 * dim * dim, image);
 	fclose(image);
 	printf("done\n");
-	free(raw);
+	free(rawimage);
 	free(kernel_file);
 	getchar();
 	return 0;
@@ -136,8 +137,8 @@ int main()
 void init()
 {
 	/* Get platform/device information */
-	ret = clGetPlatformIDs(5, platform_id, &ret_num_platforms);		//»ñÈ¡Æ½Ì¨ÊýÁ¿
-	ret = clGetPlatformIDs(ret_num_platforms, platform_id, NULL);	//´æÈëplatform_id
+	ret = clGetPlatformIDs(5, platform_id, &ret_num_platforms);		//èŽ·å–å¹³å°æ•°é‡
+	ret = clGetPlatformIDs(ret_num_platforms, platform_id, NULL);	//å­˜å…¥platform_id
 
 
 	printf("Find:%d platform(s)\n", ret_num_platforms);
@@ -198,18 +199,18 @@ void nv_unit(void *pos)
 	count_nv++;
 	ret = clSetKernelArg(kernel_nv, 2, sizeof(uint32_t), (void *)&tmp);
 	ret = clEnqueueNDRangeKernel(command_queue_nv, kernel_nv, 1, NULL, &global_work_size, NULL, 0, NULL, NULL);
-#ifdef DEBUG
+#ifdef DEBUG_CL
 	if (ret == 0)
 		printf("Kernel success exec.\n");
 	else
 		printf("Kernel fail exec.\n");
 #endif
-	ret = clEnqueueReadBuffer(command_queue_nv, memobj_nvida, CL_TRUE, 0, dev_mem_alloc_size, raw + tmp * 3, 0, NULL, NULL);
-#ifdef DEBUG
+	ret = clEnqueueReadBuffer(command_queue_nv, memobj_nvida, CL_TRUE, 0, dev_mem_alloc_size, rawimage + tmp * 3, 0, NULL, NULL);
+#ifdef DEBUG_CL
 	if (ret == 0)
 		printf("Data success read.\n");
 	else
-		printf("Data fail read %d£¬ read pos:%d\n", ret, *(int *)pos);
+		printf("Data fail read %d, read pos:%d\n", ret, *(int *)pos);
 	printf("NV Work:%d finish\n", count_nv);
 #endif
 	id[NVIDIA] = 0;
@@ -222,18 +223,18 @@ void in_unit(void *pos){
 	count_ig++;
 	ret = clSetKernelArg(kernel_in, 2, sizeof(uint32_t), (void *)&tmp);
 	ret = clEnqueueNDRangeKernel(command_queue_in, kernel_in, 1, NULL, &global_work_size, NULL, 0, NULL, NULL);
-#ifdef DEBUG
+#ifdef DEBUG_CL
 	if (ret == 0)
 		printf("Kernel success exec.\n");
 	else
 		printf("Kernel fail exec:%d\n", ret);
 #endif
-	ret = clEnqueueReadBuffer(command_queue_in, memobj_intel, CL_TRUE, 0, dev_mem_alloc_size, raw + tmp * 3, 0, NULL, NULL);
-#ifdef DEBUG
+	ret = clEnqueueReadBuffer(command_queue_in, memobj_intel, CL_TRUE, 0, dev_mem_alloc_size, rawimage + tmp * 3, 0, NULL, NULL);
+#ifdef DEBUG_CL
 	if (ret == 0)
 		printf("Data success read.\n");
 	else
-		printf("Data fail read %d£¬ read pos:%d\n", ret, *(int *)pos);
+		printf("Data fail read %d, read pos:%d\n", ret, *(int *)pos);
 	printf("IG Work:%d finish\n", count_ig);
 #endif
 	id[INTEL] = 0;
@@ -271,8 +272,8 @@ int getProgramBuildInfo(cl_program program, cl_device_id device)
 
 int getDevices() {
 	/* Host/device data structures */
-	cl_platform_id *platforms;
-	cl_device_id *devices;
+	cl_platform_id *platforms = NULL;
+	cl_device_id *devices = NULL;
 	cl_uint num_platforms;
 	cl_uint num_devices, addr_data;
 	cl_int i, err;
@@ -286,7 +287,7 @@ int getDevices() {
 		exit(1);
 	}
 
-	/* Ñ¡È¡ËùÓÐµÄplatforms*/
+	/* é€‰å–æ‰€æœ‰çš„platforms*/
 	platforms = (cl_platform_id*)
 		malloc(sizeof(cl_platform_id)* num_platforms);
 	err = clGetPlatformIDs(num_platforms, platforms, NULL);
@@ -295,12 +296,12 @@ int getDevices() {
 		exit(1);
 	}
 
-	//Ñ­»·²é¿´ËùÓÐplatformsµÄdevicesÐÅÏ¢£¬Ò»°ãintelºÍAMDµÄ¶¼¿ÉÒÔÓÐÁ½¸ödevices£ºCPUºÍÏÔ¿¨
-	//Èç¹ûÊÇnvidiaµÄ¾ÍÒ»°ãÖ»ÓÐÒ»¸öÏÔ¿¨deviceÁË¡£
+	//å¾ªçŽ¯æŸ¥çœ‹æ‰€æœ‰platformsçš„devicesä¿¡æ¯ï¼Œä¸€èˆ¬intelå’ŒAMDçš„éƒ½å¯ä»¥æœ‰ä¸¤ä¸ªdevicesï¼šCPUå’Œæ˜¾å¡
+	//å¦‚æžœæ˜¯nvidiaçš„å°±ä¸€èˆ¬åªæœ‰ä¸€ä¸ªæ˜¾å¡deviceäº†ã€‚
 	for (int j = 0; j < (int)num_platforms; j++)
 	{
 		printf("\nplatform %d\n", j + 1);
-		/* ²½ÖèºÍplatformsµÄÒ»Ñù */
+		/* æ­¥éª¤å’Œplatformsçš„ä¸€æ · */
 		err = clGetDeviceIDs(platforms[j], CL_DEVICE_TYPE_ALL, 1, NULL, &num_devices);
 		if (err < 0) {
 			perror("Couldn't find any devices");
@@ -313,7 +314,7 @@ int getDevices() {
 		clGetDeviceIDs(platforms[j], CL_DEVICE_TYPE_ALL,
 			num_devices, devices, NULL);
 
-		/*Ñ­»·ÏÔÊ¾platformµÄËùÓÐdevice£¨CPUºÍÏÔ¿¨£©ÐÅÏ¢¡£*/
+		/*å¾ªçŽ¯æ˜¾ç¤ºplatformçš„æ‰€æœ‰deviceï¼ˆCPUå’Œæ˜¾å¡ï¼‰ä¿¡æ¯ã€‚*/
 		for (i = 0; i<(int)num_devices; i++) {
 
 			err = clGetDeviceInfo(devices[i], CL_DEVICE_NAME,
