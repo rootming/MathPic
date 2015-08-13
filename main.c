@@ -13,11 +13,11 @@
 #endif
 
 #pragma warning( disable : 4996 )
-#define DEBUG
+//#define DEBUG
 #define MAX_SOURCE_SIZE (0x100000)
 
-#define _DIM 480
-#define _BOX 240
+#define _DIM 1920
+#define _BOX 960
 
 
 void loadKernel(const char *path, char **source_str, size_t *source_size);
@@ -60,7 +60,12 @@ char devicesName[64];
 size_t nameLen;
 size_t global_work_size = _BOX * _BOX;
 volatile int id[2];
-enum PLATFROM { NVIDIA, INTEL };
+HANDLE hThrd_NV;
+HANDLE hThrd_IN;
+DWORD exitCode_NV;
+DWORD exitCode_IN;
+
+enum PLATFROM { NVIDIA = 0, INTEL };
 uint32_t pos = 0;
 int arg = 0;
 
@@ -86,25 +91,31 @@ int main()
 	printf("Start render...\n");
 	start = clock();
 
-	do{
-		if (id[NVIDIA] == 0 && pos < dim * dim){
-			arg = pos;
-			WaitForSingleObject((HANDLE)_beginthread(nv_unit, 0, (void *)&arg), CL_INFINITY);
-			pos += box * box;
-			//continue;
-		}
-		if (id[INTEL] == 0 && pos < dim * dim){
-			arg = pos;
-			WaitForSingleObject((HANDLE)_beginthread(in_unit, 0, (void *)&arg), CL_INFINITY);
-			while (id[INTEL] == 1);
-			pos += box * box;
-			//continue;
-		}
-
-	
-
-	} while (pos < dim * dim || id[INTEL] || id[NVIDIA]);
-
+	while (pos < dim * dim){
+		GetExitCodeThread(hThrd_NV, &exitCode_NV);
+		if (exitCode_NV == STILL_ACTIVE)
+			;
+		else 
+			if(pos < dim * dim){
+				arg = pos;
+				hThrd_NV = (HANDLE)_beginthread(nv_unit, 0, (void *)&arg);
+				pos += box * box;
+				//continue;
+			}
+		GetExitCodeThread(hThrd_IN, &exitCode_IN);
+		if (exitCode_IN == STILL_ACTIVE)
+			;
+		else 
+			if(pos < dim * dim){
+				arg = pos;
+				hThrd_IN = (HANDLE)_beginthread(in_unit, 0, (void *)&arg);
+				pos += box * box;
+				//continue;
+			}
+			Sleep(5);
+	}
+	WaitForSingleObject(hThrd_NV, 1000);
+	WaitForSingleObject(hThrd_IN, 1000);
 	end = clock();
 	printf("Render end, using %d ms\n", end - start);
 	
@@ -193,16 +204,20 @@ void init()
 }
 void nv_unit(void *pos)
 {
-	id[NVIDIA] = 1;
+	//id[NVIDIA] = 1;
 	uint32_t tmp = *(uint32_t *)pos;
-	count_nv++;
+	
 	ret = clSetKernelArg(kernel_nv, 2, sizeof(uint32_t), (void *)&tmp);
 	ret = clEnqueueNDRangeKernel(command_queue_nv, kernel_nv, 1, NULL, &global_work_size, NULL, 0, NULL, NULL);
 #ifdef DEBUG
-	if (ret == 0)
+	if (ret == 0){
 		printf("Kernel success exec.\n");
-	else
+	}
+	else{
 		printf("Kernel fail exec.\n");
+		return;
+	}
+	count_nv++;
 #endif
 	ret = clEnqueueReadBuffer(command_queue_nv, memobj_nvida, CL_TRUE, 0, dev_mem_alloc_size, raw + tmp * 3, 0, NULL, NULL);
 #ifdef DEBUG
@@ -212,21 +227,26 @@ void nv_unit(void *pos)
 		printf("Data fail read %d£¬ read pos:%d\n", ret, *(int *)pos);
 	printf("NV Work:%d finish\n", count_nv);
 #endif
-	id[NVIDIA] = 0;
+	//id[NVIDIA] = 0;
+	_endthreadex(0);
 	
 }
 
 void in_unit(void *pos){
-	id[INTEL] = 1;
+	//id[INTEL] = 1;
 	uint32_t tmp = *((uint32_t *)pos);
-	count_ig++;
+	
 	ret = clSetKernelArg(kernel_in, 2, sizeof(uint32_t), (void *)&tmp);
 	ret = clEnqueueNDRangeKernel(command_queue_in, kernel_in, 1, NULL, &global_work_size, NULL, 0, NULL, NULL);
 #ifdef DEBUG
-	if (ret == 0)
+	if (ret == 0){
 		printf("Kernel success exec.\n");
-	else
-		printf("Kernel fail exec:%d\n", ret);
+	}
+	else{
+		printf("Kernel fail exec.\n");
+		return;
+	}
+	count_ig++;
 #endif
 	ret = clEnqueueReadBuffer(command_queue_in, memobj_intel, CL_TRUE, 0, dev_mem_alloc_size, raw + tmp * 3, 0, NULL, NULL);
 #ifdef DEBUG
@@ -236,7 +256,8 @@ void in_unit(void *pos){
 		printf("Data fail read %d£¬ read pos:%d\n", ret, *(int *)pos);
 	printf("IG Work:%d finish\n", count_ig);
 #endif
-	id[INTEL] = 0;
+	//id[INTEL] = 0;
+	_endthreadex(0);
 }
 
 void loadKernel(const char *path, char **source_str, size_t *source_size)
