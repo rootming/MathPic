@@ -1,86 +1,360 @@
-// rootming@live.cn
-#define  _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <math.h>
-#include <malloc.h>
+#include <string.h>
+#include <time.h>
 #include <PROCESS.H>
+#include <Windows.h>
+#ifdef __APPLE__
+#include <OpenCL/opencl.h>
+#else
+#include <CL/cl.h>
+#endif
 
-#define DIM 1920
-#define _TH_NUM 10
-#define PE	DIM / _TH_NUM
-#define DM1 (DIM-1)
-#define _sq(x) ((x)*(x)) // square
-#define _cb(x) abs((x)*(x)*(x)) // absolute value of cube
-#define _cr(x) (uint8_t)(pow((x),1.0/3.0)) // cube root
+#pragma warning( disable : 4996 )
+//#define DEBUG
+#define MAX_SOURCE_SIZE (0x100000)
 
-typedef struct _arg{
-	int32_t id;
-	int32_t begin;
-	int32_t end;
-	uint8_t *src;
-}arg;
+#define _DIM 1920
+#define _BOX 960
 
-arg units[_TH_NUM];
-volatile int32_t thread_id[_TH_NUM];
-volatile int count;
+
+void loadKernel(const char *path, char **source_str, size_t *source_size);
+int getProgramBuildInfo(cl_program program, cl_device_id device);
+void init();
+
+uint32_t  dim = _DIM;
+uint32_t  box = _BOX;
+uint32_t  host_mem_alloc_size = _DIM * _DIM * 3 * sizeof(uint8_t);
+uint32_t  dev_mem_alloc_size = _BOX * _BOX * 3 * sizeof(uint8_t);
+uint32_t count_nv = 0;
+uint32_t count_ig = 0;
+const char fileName[] = "kernel.cl";
 uint8_t *raw;
-FILE *fp;
+size_t kernel_size;
+char *kernel_file;
+cl_platform_id platform_id[5];
+clock_t start, end;
+int getDevices();
+void nv_unit(void *pos);
+void in_unit(void *pos);
+cl_device_id device_id[2];
+//	cl_device_id *devices;
+cl_context context_nvida = NULL;
+cl_context context_intel = NULL;
+cl_command_queue command_queue_nv = NULL;
+cl_command_queue command_queue_in = NULL;
+cl_mem memobj_nvida = NULL;
+cl_mem memobj_intel = NULL;
+cl_program program_nvidia = NULL;
+cl_program program_intel = NULL;
+cl_kernel kernel_nv = NULL;
+cl_kernel kernel_in = NULL;
+cl_uint ret_num_devices;
+cl_uint ret_num_platforms;
+cl_int ret;
+char platformName[64];
+char openclVersion[64];
+char devicesName[64];
+size_t nameLen;
+size_t global_work_size = _BOX * _BOX;
+volatile int id[2];
+HANDLE hThrd_NV;
+HANDLE hThrd_IN;
+DWORD exitCode_NV;
+DWORD exitCode_IN;
+
+enum PLATFROM { NVIDIA = 0, INTEL };
+uint32_t pos = 0;
+int arg = 0;
 
 
-void pixel_write(arg *unit){
-	double a = 0, b = 0, c = 0, d = 0, n = 0;
-	uint8_t *p;
-	p = unit->src;
-	printf("Thread %d start\n", unit->id);
-	printf("PE %d\n", PE);
-//#pragma loop(hint_parallel(8))
-	for (int32_t j = unit->begin; j < unit->end; j++){
-		for (int32_t i = 0; i < DIM; i++){
-			a = 0, b = 0, c = 0, d = 0, n = 0;
-			while ((c = a * a) + (d = b * b) < 4 && n++ < 880){
-				b = 2 * a * b + j * 8e-9 - .645411;
-				a = c - d + i * 8e-9 + .356888;
-			}
-			p[0] = (uint8_t)(255 * pow((n - 80) / 800, 3.)) & 255;
-			p[1] = (uint8_t)(255 * pow((n - 80) / 800, .7)) & 255;
-			p[2] = (uint8_t)(255 * pow((n - 80) / 800, .5)) & 255;
-			p += 3;
-		}
-	}
-	printf("Thread %d end\n", unit->id);
-	thread_id[unit->id] = 1;
-}
-
-int main(void)
+int main()
 {
+	FILE *image;
+	loadKernel("kernel.cl", &kernel_file, &kernel_size);
 
-	if ((raw = malloc(sizeof(uint8_t)* DIM * DIM * 3)) == NULL){
+	if ((raw = malloc(host_mem_alloc_size)) == NULL){
 		perror("malloc error");
+		getchar();
 		exit(1);
 	}
-	//raw = malloc(sizeof(uint8_t)* DIM * DIM * 3);
-	fp = fopen("MathPic.ppm", "wb");
-	fprintf(fp, "P6\n%d %d\n255\n", DIM, DIM);
-	for (int32_t i = 0; i < _TH_NUM; i++){
-		units[i].begin = i * PE;
-		units[i].end = units[i].begin + PE;
-		units[i].id = i;
-		units[i].src = &raw[i * PE * DIM * 3];
-		_beginthread(pixel_write, 0, &units[i]);
+	
+	image = fopen("MathPic.ppm", "wb");
+	fprintf(image, "P6\n%d %d\n255\n", dim, dim);
+
+
+
+	init();
+	printf("Picture: %dx%d\n", dim, dim);
+	printf("Start render...\n");
+	start = clock();
+
+	while (pos < dim * dim){
+		GetExitCodeThread(hThrd_NV, &exitCode_NV);
+		if (exitCode_NV == STILL_ACTIVE)
+			;
+		else 
+			if(pos < dim * dim){
+				arg = pos;
+				hThrd_NV = (HANDLE)_beginthread(nv_unit, 0, (void *)&arg);
+				pos += box * box;
+				//continue;
+			}
+		GetExitCodeThread(hThrd_IN, &exitCode_IN);
+		if (exitCode_IN == STILL_ACTIVE)
+			;
+		else 
+			if(pos < dim * dim){
+				arg = pos;
+				hThrd_IN = (HANDLE)_beginthread(in_unit, 0, (void *)&arg);
+				pos += box * box;
+				//continue;
+			}
+			Sleep(5);
+	}
+	WaitForSingleObject(hThrd_NV, 1000);
+	WaitForSingleObject(hThrd_IN, 1000);
+	end = clock();
+	printf("Render end, using %d ms\n", end - start);
+	
+	//_sleep(10000);
+	/* Finalization */
+	ret = clFlush(command_queue_nv);
+	ret = clFinish(command_queue_nv);
+	ret = clFlush(command_queue_in);
+	ret = clFinish(command_queue_in);
+	ret = clReleaseKernel(kernel_nv);
+	ret = clReleaseProgram(program_nvidia);
+	ret = clReleaseKernel(kernel_in);
+	ret = clReleaseProgram(program_intel);
+	ret = clReleaseMemObject(memobj_nvida);
+	ret = clReleaseMemObject(memobj_intel);
+	ret = clReleaseCommandQueue(command_queue_nv);
+	ret = clReleaseCommandQueue(command_queue_in);
+	ret = clReleaseContext(context_nvida);
+	ret = clReleaseContext(context_intel);
+	printf("Start write...\n");
+	fwrite(raw, 1, 3 * dim * dim, image);
+	fclose(image);
+	printf("done\n");
+	free(raw);
+	free(kernel_file);
+	getchar();
+	return 0;
+}
+void init()
+{
+	/* Get platform/device information */
+	ret = clGetPlatformIDs(5, platform_id, &ret_num_platforms);		//获取平台数量
+	ret = clGetPlatformIDs(ret_num_platforms, platform_id, NULL);	//存入platform_id
+
+
+	printf("Find:%d platform(s)\n", ret_num_platforms);
+	for (uint32_t i = 0; i < ret_num_platforms; i++){
+		clGetPlatformInfo(platform_id[i], CL_PLATFORM_NAME, 64, platformName, &nameLen);
+		clGetPlatformInfo(platform_id[i], CL_PLATFORM_VERSION, 64, openclVersion, &nameLen);
+		printf("%d: name: %s %s\n", i, platformName, openclVersion);
+	}
+	/* Create OpenCL Context */
+	ret = clGetDeviceIDs(platform_id[0], CL_DEVICE_TYPE_GPU, 1, &device_id[0], &ret_num_devices);//choose platform
+	ret = clGetDeviceInfo(device_id[0], CL_DEVICE_NAME, 64, devicesName, NULL);
+	printf("Using devices: %s\n", devicesName);
+
+	ret = clGetDeviceIDs(platform_id[1], CL_DEVICE_TYPE_GPU, 1, &device_id[1], &ret_num_devices);//choose platform
+	ret = clGetDeviceInfo(device_id[1], CL_DEVICE_NAME, 64, devicesName, NULL);
+	printf("Using devices: %s\n", devicesName);
+
+	context_nvida = clCreateContext(NULL, 1, &device_id[0], NULL, NULL, &ret);
+	context_intel = clCreateContext(NULL, 1, &device_id[1], NULL, NULL, &ret);
+
+
+	/* Create Command Queue */
+	command_queue_nv = clCreateCommandQueue(context_nvida, device_id[0], 0, &ret);
+	command_queue_in = clCreateCommandQueue(context_intel, device_id[1], 0, &ret);
+
+	/* Create memory buffer*/
+	memobj_nvida = clCreateBuffer(context_nvida, CL_MEM_READ_WRITE, dev_mem_alloc_size, NULL, &ret);
+	memobj_intel = clCreateBuffer(context_intel, CL_MEM_READ_WRITE, dev_mem_alloc_size, NULL, &ret);
+	if (memobj_nvida == NULL || memobj_nvida == NULL){
+		printf("Memory object failed to create!\n");
+		getchar();
+		return;
 	}
 
-	while (count != _TH_NUM){
-		count = 0;
-		for (int i = 0; i < _TH_NUM; i++){
-			count += thread_id[i];
-		}
-		Sleep(100L);
+
+	program_nvidia = clCreateProgramWithSource(context_nvida, 1, (const char **)&kernel_file, &kernel_size, &ret);
+	ret = clBuildProgram(program_nvidia, 1, &device_id[0], NULL, NULL, NULL);
+	getProgramBuildInfo(program_nvidia, device_id[0]);
+
+	program_intel = clCreateProgramWithSource(context_intel, 1, (const char **)&kernel_file, &kernel_size, &ret);
+	ret = clBuildProgram(program_intel, 1, &device_id[1], NULL, NULL, NULL);
+	getProgramBuildInfo(program_intel, device_id[1]);
+
+
+	kernel_nv = clCreateKernel(program_nvidia, "vecAdd", &ret);
+	kernel_in = clCreateKernel(program_intel, "vecAdd", &ret);
+
+
+	ret = clSetKernelArg(kernel_nv, 0, sizeof(cl_mem), (void *)&memobj_nvida);
+	ret = clSetKernelArg(kernel_nv, 1, sizeof(size_t), (void *)&dim);
+	ret = clSetKernelArg(kernel_in, 0, sizeof(cl_mem), (void *)&memobj_intel);
+	ret = clSetKernelArg(kernel_in, 1, sizeof(size_t), (void *)&dim);
+}
+void nv_unit(void *pos)
+{
+	//id[NVIDIA] = 1;
+	uint32_t tmp = *(uint32_t *)pos;
+	
+	ret = clSetKernelArg(kernel_nv, 2, sizeof(uint32_t), (void *)&tmp);
+	ret = clEnqueueNDRangeKernel(command_queue_nv, kernel_nv, 1, NULL, &global_work_size, NULL, 0, NULL, NULL);
+#ifdef DEBUG
+	if (ret == 0){
+		printf("Kernel success exec.\n");
 	}
-	fwrite(raw, 1, 3 * DIM * DIM, fp);
+	else{
+		printf("Kernel fail exec.\n");
+		return;
+	}
+	count_nv++;
+#endif
+	ret = clEnqueueReadBuffer(command_queue_nv, memobj_nvida, CL_TRUE, 0, dev_mem_alloc_size, raw + tmp * 3, 0, NULL, NULL);
+#ifdef DEBUG
+	if (ret == 0)
+		printf("Data success read.\n");
+	else
+		printf("Data fail read %d， read pos:%d\n", ret, *(int *)pos);
+	printf("NV Work:%d finish\n", count_nv);
+#endif
+	//id[NVIDIA] = 0;
+	_endthreadex(0);
+	
+}
+
+void in_unit(void *pos){
+	//id[INTEL] = 1;
+	uint32_t tmp = *((uint32_t *)pos);
+	
+	ret = clSetKernelArg(kernel_in, 2, sizeof(uint32_t), (void *)&tmp);
+	ret = clEnqueueNDRangeKernel(command_queue_in, kernel_in, 1, NULL, &global_work_size, NULL, 0, NULL, NULL);
+#ifdef DEBUG
+	if (ret == 0){
+		printf("Kernel success exec.\n");
+	}
+	else{
+		printf("Kernel fail exec.\n");
+		return;
+	}
+	count_ig++;
+#endif
+	ret = clEnqueueReadBuffer(command_queue_in, memobj_intel, CL_TRUE, 0, dev_mem_alloc_size, raw + tmp * 3, 0, NULL, NULL);
+#ifdef DEBUG
+	if (ret == 0)
+		printf("Data success read.\n");
+	else
+		printf("Data fail read %d， read pos:%d\n", ret, *(int *)pos);
+	printf("IG Work:%d finish\n", count_ig);
+#endif
+	//id[INTEL] = 0;
+	_endthreadex(0);
+}
+
+void loadKernel(const char *path, char **source_str, size_t *source_size)
+{
+	FILE *fp;
+	/* Load kernel source code */
+	fp = fopen(path, "r");
+	if (!fp) {
+		fprintf(stderr, "Failed to load kernel.\n");
+		exit(1);
+	}
+	*source_str = (char *)malloc(MAX_SOURCE_SIZE);
+	*source_size = fread(*source_str, 1, MAX_SOURCE_SIZE, fp);
 	fclose(fp);
-	printf("done\n");
-	getch();
+}
+
+int getProgramBuildInfo(cl_program program, cl_device_id device)
+{
+	size_t log_size;
+	char *program_log;
+	/* Find size of log and print to std output */
+	clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
+		0, NULL, &log_size);
+	program_log = (char*)malloc(log_size + 1);
+	program_log[log_size] = '\0';
+	clGetProgramBuildInfo(program, device, CL_PROGRAM_BUILD_LOG,
+		log_size + 1, program_log, NULL);
+	printf("%s\n", program_log);
+	free(program_log);
+	return 0;
+}
+
+int getDevices() {
+	/* Host/device data structures */
+	cl_platform_id *platforms;
+	cl_device_id *devices;
+	cl_uint num_platforms;
+	cl_uint num_devices, addr_data;
+	cl_int i, err;
+
+	/* Extension data */
+	char name_data[48], ext_data[4096];
+
+	err = clGetPlatformIDs(5, NULL, &num_platforms);
+	if (err < 0) {
+		perror("Couldn't find any platforms.");
+		exit(1);
+	}
+
+	/* 选取所有的platforms*/
+	platforms = (cl_platform_id*)
+		malloc(sizeof(cl_platform_id)* num_platforms);
+	err = clGetPlatformIDs(num_platforms, platforms, NULL);
+	if (err < 0) {
+		perror("Couldn't find any platforms");
+		exit(1);
+	}
+
+	//循环查看所有platforms的devices信息，一般intel和AMD的都可以有两个devices：CPU和显卡
+	//如果是nvidia的就一般只有一个显卡device了。
+	for (int j = 0; j < (int)num_platforms; j++)
+	{
+		printf("\nplatform %d\n", j + 1);
+		/* 步骤和platforms的一样 */
+		err = clGetDeviceIDs(platforms[j], CL_DEVICE_TYPE_ALL, 1, NULL, &num_devices);
+		if (err < 0) {
+			perror("Couldn't find any devices");
+			exit(1);
+		}
+
+		/* Access connected devices */
+		devices = (cl_device_id*)
+			malloc(sizeof(cl_device_id)* num_devices);
+		clGetDeviceIDs(platforms[j], CL_DEVICE_TYPE_ALL,
+			num_devices, devices, NULL);
+
+		/*循环显示platform的所有device（CPU和显卡）信息。*/
+		for (i = 0; i<(int)num_devices; i++) {
+
+			err = clGetDeviceInfo(devices[i], CL_DEVICE_NAME,
+				sizeof(name_data), name_data, NULL);
+			if (err < 0) {
+				perror("Couldn't read extension data");
+				exit(1);
+			}
+			clGetDeviceInfo(devices[i], CL_DEVICE_ADDRESS_BITS,
+				sizeof(ext_data), &addr_data, NULL);
+
+			clGetDeviceInfo(devices[i], CL_DEVICE_EXTENSIONS,
+				sizeof(ext_data), ext_data, NULL);
+
+			printf("NAME: %s\nADDRESS_WIDTH: %u\nEXTENSIONS: %s\n\n",
+				name_data, addr_data, ext_data);
+		}
+	}
+
+	free(platforms);
+	free(devices);
 	return 0;
 }
