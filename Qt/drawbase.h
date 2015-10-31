@@ -1,47 +1,42 @@
 #ifndef DRAWBASE_H
 #define DRAWBASE_H
-#include <QWidget>
+
+#include <QMutex>
+#include <QThread>
 #include <iostream>
 #include <cstring>
 #include <cmath>
 #include <stdint.h>
+#include "drawer.h"
 
-#define _DIM	9600
-#define _BLK	128
-#define _THUM	100
 
 using namespace std;
 
-typedef struct _pos_t
-{
-    uint32_t x, y;
-} pos_t;
 
-class Drawbase:public QWidget
+class Drawbase:public QThread
 {
+    Q_OBJECT
 public:
-    Drawbase(QWidget *parent);
-    Drawbase(uint32_t imageSize = _DIM, uint32_t blockSize = _BLK, uint32_t threadNum = _THUM);
-    uint32_t drawPixel(int i, int j);
+    Drawbase(const Drawinfo &info);
     void drawBlock(pos_t *postion);
-    void calcPost();
-    void virtual draw();
-
-     void paintEvent(QPaintEvent *event);
+    void drawThread();
+    void paintEvent(QPaintEvent *event);
 
 private:
-    uint8_t *image;
+    uint32_t drawPixel(int i, int j);
+    void run() Q_DECL_OVERRIDE;
     uint32_t DIM;
     uint32_t BLK;
-    uint32_t THUM;
+    uint8_t *image;
+    uint32_t *count;
+    pos_t **posTree;
+    QMutex *locker;
+    uint32_t blkCount;
+    QString result;
 
-    uint32_t postY;
-    uint64_t imagePixel;
-    uint64_t blockPixel;
-    uint32_t size;
+signals:
+    void resultReady(const QString &s);
 
-    pos_t *posTree;
-    pos_t *posTreeBak;
 
 };
 

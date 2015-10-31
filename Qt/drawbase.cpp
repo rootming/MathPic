@@ -1,30 +1,15 @@
 #include "drawbase.h"
-#include <QPainter>
-#include <QPixmap>
-#include <QLabel>
+#include <QDebug>
 
-Drawbase::Drawbase(QWidget *parent):QWidget(parent)
+Drawbase::Drawbase(const Drawinfo &info)
 {
-    DIM = _DIM;
-    BLK = _BLK;
-    THUM =_THUM;
-    image = (uint8_t *)new uint8_t(DIM * DIM * 3);
-    postY = BLK * BLK / DIM;
-    imagePixel = DIM * DIM;
-    blockPixel = BLK * BLK;
-    size = DIM % BLK > 0 ? DIM / BLK + 1 : DIM / BLK;
-}
-
-Drawbase::Drawbase(uint32_t imageSize, uint32_t blockSize, uint32_t threadNum)
-{
-    DIM = imageSize;
-    BLK = blockSize;
-    THUM = threadNum;
-    image = (uint8_t *)new uint8_t[DIM * DIM * 3];
-    postY = BLK * BLK / DIM;
-    imagePixel = DIM * DIM;
-    blockPixel = BLK * BLK;
-    size = DIM % BLK > 0 ? DIM / BLK + 1 : DIM / BLK;
+        image = info.source;
+        posTree = info.post;
+        locker = info.l;
+        count = info.c;
+        DIM = info.imageSize;
+        BLK = info.imageSize;
+        blkCount = info.blockCount;
 }
 
 inline uint32_t Drawbase::drawPixel(int i, int j)
@@ -61,35 +46,24 @@ void Drawbase::drawBlock(pos_t *postion)
     }
 }
 
-void Drawbase::calcPost()
-{
-    clog<<"calculate postion...\n"<<endl;
-    if((posTree = (pos_t *)new pos_t[size * size]) == NULL){
-        cerr<<"alloc memory error"<<endl;
-        exit(1);
-    }
-    posTreeBak = posTree;
-    for(uint32_t i = 0; i < size; i++){
-        for(uint32_t j = 0; j < size; j++){
-            posTree[i * size + j].x = i * BLK;
-            posTree[i * size + j].y = j * BLK;
+
+void Drawbase::run() Q_DECL_OVERRIDE {
+    pos_t *tmp;
+    for(;;){
+        locker->lock();
+        if(*count < blkCount){
+            (*count)++;
+            tmp = (*posTree)++;
         }
+        else{
+            locker->unlock();
+            break;
+        }
+        locker->unlock();
+        drawBlock(tmp);
+        qDebug()<<"Work:"<<*count<<"done";
+        qDebug()<<"next";
     }
-}
-
-void Drawbase::draw()
-{
-
-}
-
-
-void Drawbase::paintEvent(QPaintEvent *event)
-{
-        QPainter painter(this);
-        painter.drawLine(80, 100, 650, 500);
-        painter.setPen(Qt::red);
-        painter.drawRect(10, 10, 100, 400);
-        painter.setPen(QPen(Qt::green, 5));
-        painter.setBrush(Qt::blue);
-        painter.drawEllipse(50, 150, 400, 200);
+    qDebug()<<"Finished";
+    emit resultReady(result);
 }

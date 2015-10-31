@@ -15,12 +15,11 @@ TEMPLATE = app
 SOURCES += main.cpp\
         mainwindow.cpp \
     drawbase.cpp \
-    cpudraw.cpp
+    drawer.cpp
 
 HEADERS  += mainwindow.h \
     drawbase.h \
-    cpudraw.h
+    drawer.h
 
 FORMS    += mainwindow.ui
 
-LDFLAGS += std=c++11

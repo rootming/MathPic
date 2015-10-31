@@ -7,9 +7,9 @@ MainWindow::MainWindow(QWidget *parent) :
     ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-    test = new Drawbase(this);
-    test->resize(400, 400);
-
+    test = new Drawer();
+    test->calcPost();
+    test->drawThread();
 
 }
 

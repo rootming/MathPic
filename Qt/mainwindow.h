@@ -2,7 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
-#include "drawbase.h"
+#include "drawer.h"
 namespace Ui {
 class MainWindow;
 }
@@ -17,7 +17,7 @@ public:
 
 private:
     Ui::MainWindow *ui;
-    Drawbase *test;
+    Drawer *test;
 };
 
 #endif // MAINWINDOW_H
