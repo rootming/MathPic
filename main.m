@@ -17,7 +17,7 @@
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
 
-        Drawer *faker = [Drawer alloc];
+        Drawer *faker = [[Drawer alloc] init];
         [faker saveFile];
     }
     return 0;
