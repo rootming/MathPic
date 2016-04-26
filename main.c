@@ -7,7 +7,7 @@
 #include <pthread.h>
 
 //image size; block size; thread number
-#define _DIM	9600
+#define _DIM	19200
 #define _BLK	128
 #define _THUM	4
 
