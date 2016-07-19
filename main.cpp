@@ -116,5 +116,6 @@ int main()
     file.write(image, _TARGET_SIDE * _TARGET_SIDE * 3);
     cout << "Write ended, using " << time(NULL) - write << "s." << endl;
     cin.get();
+    delete []image;
     file.close();
 }
