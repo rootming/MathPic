@@ -1,8 +1,8 @@
 TRG	= MathPic
-SRC	= main.c
+SRC	= main.cpp
 THREADS	= 4
 
-CFLAG	+= -std=c99 -Wall -g
+CFLAG	+= -std=c++11 -Wall -g
 LIBS	+= -lm -lpthread
 
 include Makefile_generic.defs
