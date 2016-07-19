@@ -57,7 +57,7 @@ void drawUnit(Pos_t &pos)
 void calcUnitPosition()
 {
     cout << "Calculating postion...\n";
-    uint32_t count = _TARGET_SIDE % _UNIT_SIDE > 0 ? _TARGET_SIDE / _UNIT_SIDE + 1 : _TARGET_SIDE / _UNIT_SIDE;
+    uint32_t count = _TARGET_SIDE % _UNIT_SIDE ? _TARGET_SIDE / _UNIT_SIDE : _TARGET_SIDE / _UNIT_SIDE + 1;
     Pos_t temp;
     for (uint32_t i = 0; i < count; i++) {
         for (uint32_t j = 0; j < count; j++) {
@@ -86,7 +86,7 @@ void drawThread(int num)
         drawUnit(temp);
     }
     this_thread::sleep_for(std::chrono::milliseconds(num * 10));
-    cout << "Thread:" << num << " is finished." << endl;
+    cout << "Thread:" << num << " finished." << endl;
 }
 
 int main()
@@ -112,9 +112,9 @@ int main()
         it.join();
 
     write = time(NULL);
-    cout << "Render is ended, using " << write - start << "s." << endl;
+    cout << "Render ended, using " << write - start << "s." << endl;
     file.write(image, _TARGET_SIDE * _TARGET_SIDE * 3);
-    cout << "Write is ended, using " << time(NULL) - write << "s." << endl;
+    cout << "Write ended, using " << time(NULL) - write << "s." << endl;
     cin.get();
     file.close();
 }
