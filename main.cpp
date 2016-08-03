@@ -57,7 +57,7 @@ void drawUnit(Pos_t &pos)
 void calcUnitPosition()
 {
     cout << "Calculating postion...\n";
-    uint32_t count = _TARGET_SIDE % _UNIT_SIDE ? _TARGET_SIDE / _UNIT_SIDE : _TARGET_SIDE / _UNIT_SIDE + 1;
+    uint32_t count = _TARGET_SIDE % _UNIT_SIDE ? _TARGET_SIDE / _UNIT_SIDE + 1: _TARGET_SIDE / _UNIT_SIDE;
     Pos_t temp;
     for (uint32_t i = 0; i < count; i++) {
         for (uint32_t j = 0; j < count; j++) {
